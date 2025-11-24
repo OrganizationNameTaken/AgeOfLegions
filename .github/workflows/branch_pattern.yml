@@ -20,7 +20,7 @@ jobs:
       - name: Validate branch name
         id: validate
         run: |
-          BRANCH_NAME="${{ github.ref_name }}"
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           PATTERN="^(feat|fix|chore|docs|refactor|style|test|perf)(\([a-zA-Z0-9-]+\))?\/[a-zA-Z0-9-]+$"
           
           echo "🔍 Checking branch name: $BRANCH_NAME"
