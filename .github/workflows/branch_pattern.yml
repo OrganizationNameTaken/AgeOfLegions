@@ -87,36 +87,36 @@ jobs:
             
             Based on these changes, suggest a better branch name that follows the pattern. Only respond with the branch name, nothing else.`;
             
-            try {
-              // Use GitHub Copilot API
-              const response = await github.request('POST /copilot_internal/v2/completion', {
-                prompt: prompt,
-                max_tokens: 50,
-                temperature: 0.3
-              });
-              
-              let suggestedName = response.data.choices[0].text.trim();
-              // Clean up the response (remove quotes, backticks, etc.)
-              suggestedName = suggestedName.replace(/[`"']/g, '').trim();
-              
-              core.setOutput('suggested_name', suggestedName);
-              console.log('Suggested branch name:', suggestedName);
-            } catch (error) {
-              console.log('Copilot API error:', error.message);
-              // Fallback: create a simple suggestion based on branch type
-              const types = ['feat', 'fix', 'chore', 'docs', 'refactor', 'style', 'test', 'perf'];
-              let suggestedType = 'feat';
-              for (const type of types) {
-                if (branchName.toLowerCase().includes(type)) {
-                  suggestedType = type;
-                  break;
-                }
+// Smart branch name suggestion based on the attempted name and file changes
+            const types = ['feat', 'fix', 'chore', 'docs', 'refactor', 'style', 'test', 'perf'];
+            let suggestedType = 'feat';
+            
+            // Try to detect the type from the branch name
+            for (const type of types) {
+              if (branchName.toLowerCase().includes(type)) {
+                suggestedType = type;
+                break;
               }
-              const simpleName = branchName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-              const fallbackName = `${suggestedType}/${simpleName}`;
-              core.setOutput('suggested_name', fallbackName);
-              console.log('Using fallback suggestion:', fallbackName);
             }
+            
+            // If no type detected, analyze the files changed
+            if (suggestedType === 'feat' && filesChanged) {
+              const lowerFiles = filesChanged.toLowerCase();
+              if (lowerFiles.includes('test') || lowerFiles.includes('spec')) {
+                suggestedType = 'test';
+              } else if (lowerFiles.includes('readme') || lowerFiles.includes('doc')) {
+                suggestedType = 'docs';
+              } else if (lowerFiles.includes('.css') || lowerFiles.includes('.scss') || lowerFiles.includes('style')) {
+                suggestedType = 'style';
+              }
+            }
+            
+            // Clean up the branch name to create a valid description
+            const simpleName = branchName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+            const suggestedName = `${suggestedType}/${simpleName}`;
+            
+            core.setOutput('suggested_name', suggestedName);
+            console.log(`✨ Suggested branch name: ${suggestedName}`);
         env:
           FILES_CHANGED: ${{ steps.get_diff.outputs.files_changed }}
           DIFF_SUMMARY: ${{ steps.get_diff.outputs.diff_summary }}
