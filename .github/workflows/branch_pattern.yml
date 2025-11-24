@@ -3,7 +3,7 @@ name: Branch Name Validation on Creation
 on:
   create:
 
-  permissions:
+permissions:
   contents: write
   issues: write
 
