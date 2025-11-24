@@ -3,6 +3,10 @@ name: Branch Name Validation on Creation
 on:
   create:
 
+  permissions:
+  contents: write
+  issues: write
+
 jobs:
   validate-branch-name:
     if: github.ref_type == 'branch'
