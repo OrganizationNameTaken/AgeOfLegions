@@ -33,33 +33,138 @@ jobs:
             echo "valid=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Delete invalid branch and notify
+      - name: Get changes diff
+        if: steps.validate.outputs.valid == 'false'
+        id: get_diff
+        run: |
+          # Get the diff compared to main
+          git fetch origin main
+          DIFF=$(git diff origin/main...HEAD --stat)
+          
+          # Save diff to a file for easier handling
+          git diff origin/main...HEAD > diff.txt
+          
+          # Get a summary of changes
+          FILES_CHANGED=$(git diff origin/main...HEAD --name-only | tr '\n' ', ' | sed 's/,$//')
+          
+          echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "diff_summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Ask Copilot for better branch name
+        if: steps.validate.outputs.valid == 'false'
+        id: copilot_suggest
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const branchName = context.ref.replace('refs/heads/', '');
+            const filesChanged = process.env.FILES_CHANGED;
+            const diffSummary = process.env.DIFF_SUMMARY;
+            
+            // Read diff file
+            const fs = require('fs');
+            let diffContent = '';
+            try {
+              diffContent = fs.readFileSync('diff.txt', 'utf8');
+              // Limit diff size to avoid API limits (first 3000 chars)
+              if (diffContent.length > 3000) {
+                diffContent = diffContent.substring(0, 3000) + '\n... (truncated)';
+              }
+            } catch (error) {
+              console.log('Could not read diff file:', error.message);
+            }
+            
+            const prompt = `I tried to create a branch named "${branchName}" but it doesn't follow the required pattern:
+            
+            Pattern: ^(feat|fix|chore|docs|refactor|style|test|perf)(\\([a-zA-Z0-9-]+\\))?\\/[a-zA-Z0-9-]+$
+            
+            Files changed: ${filesChanged || 'Unknown'}
+            
+            Diff summary:
+            ${diffSummary || 'No summary available'}
+            
+            Based on these changes, suggest a better branch name that follows the pattern. Only respond with the branch name, nothing else.`;
+            
+            try {
+              // Use GitHub Copilot API
+              const response = await github.request('POST /copilot_internal/v2/completion', {
+                prompt: prompt,
+                max_tokens: 50,
+                temperature: 0.3
+              });
+              
+              let suggestedName = response.data.choices[0].text.trim();
+              // Clean up the response (remove quotes, backticks, etc.)
+              suggestedName = suggestedName.replace(/[`"']/g, '').trim();
+              
+              core.setOutput('suggested_name', suggestedName);
+              console.log('Suggested branch name:', suggestedName);
+            } catch (error) {
+              console.log('Copilot API error:', error.message);
+              // Fallback: create a simple suggestion based on branch type
+              const types = ['feat', 'fix', 'chore', 'docs', 'refactor', 'style', 'test', 'perf'];
+              let suggestedType = 'feat';
+              for (const type of types) {
+                if (branchName.toLowerCase().includes(type)) {
+                  suggestedType = type;
+                  break;
+                }
+              }
+              const simpleName = branchName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+              const fallbackName = `${suggestedType}/${simpleName}`;
+              core.setOutput('suggested_name', fallbackName);
+              console.log('Using fallback suggestion:', fallbackName);
+            }
+        env:
+          FILES_CHANGED: ${{ steps.get_diff.outputs.files_changed }}
+          DIFF_SUMMARY: ${{ steps.get_diff.outputs.diff_summary }}
+
+      - name: Create issue with suggestion
         if: steps.validate.outputs.valid == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const branchName = context.ref.replace('refs/heads/', '');
+            const suggestedName = process.env.SUGGESTED_NAME || 'feat/your-description';
             
-            // Create an issue to notify the user
-            const issueBody = `## ⚠️ Branch \`${branchName}\` was automatically deleted
+            const issueBody = `## ⚠️ Branch \`${branchName}\` does not follow naming convention
             
-            The branch you created does not follow the required naming convention and has been **automatically deleted**.
+            The branch you created does not follow the required naming convention.
             
-            ### Required format:
+            ### 🤖 Suggested branch name:
+            \`\`\`
+            ${suggestedName}
+            \`\`\`
+            
+            ### 📝 Required format:
             \`\`\`
             <type>(<scope>)/<description>
             \`\`\`
             
             ### Valid types:
             - \`feat\` - A new feature
-            - \`fix\` - A bug fix  
+            - \`fix\` - A bug fix 
             - \`chore\` - Maintenance tasks
             - \`docs\` - Documentation changes
             - \`refactor\` - Code refactoring
             - \`style\` - Code style changes
             - \`test\` - Adding or updating tests
             - \`perf\` - Performance improvements
+            
+            ### ✅ To fix this, run these commands:
+            \`\`\`bash
+            # Create the new branch with the suggested name
+            git checkout -b ${suggestedName}
+            
+            # Push the new branch
+            git push origin ${suggestedName}
+            
+            # Delete the old branch (optional)
+            git push origin --delete ${branchName}
+            \`\`\`
             
             ### Examples of valid branch names:
             - ✅ \`feat/user-authentication\`
@@ -68,13 +173,7 @@ jobs:
             - ✅ \`refactor(database)/optimize-queries\`
             - ❌ \`${branchName}\` (invalid)
             
-            ### To create a valid branch:
-            \`\`\`bash
-            git checkout -b <type>/<description>
-            git push origin <type>/<description>
-            \`\`\`
-            
-            **Note:** This branch protection is automatic. Please follow the naming convention.`;
+            **Note:** This branch has NOT been deleted. You can rename it using the commands above.`;
             
             // Create issue
             const issue = await github.rest.issues.create({
@@ -86,18 +185,8 @@ jobs:
             });
             
             console.log(`Created issue #${issue.data.number}`);
-            
-            // Delete the branch
-            try {
-              await github.rest.git.deleteRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `heads/${branchName}`
-              });
-              console.log(`✅ Deleted branch: ${branchName}`);
-            } catch (error) {
-              console.log(`⚠️ Could not delete branch: ${error.message}`);
-            }
+        env:
+          SUGGESTED_NAME: ${{ steps.copilot_suggest.outputs.suggested_name }}
 
       - name: Celebrate valid branch
         if: steps.validate.outputs.valid == 'true'
