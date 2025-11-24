@@ -87,7 +87,7 @@ jobs:
             
             Based on these changes, suggest a better branch name that follows the pattern. Only respond with the branch name, nothing else.`;
             
-// Smart branch name suggestion based on the attempted name and file changes
+            // Smart branch name suggestion based on the attempted name and file changes
             const types = ['feat', 'fix', 'chore', 'docs', 'refactor', 'style', 'test', 'perf'];
             let suggestedType = 'feat';
             
