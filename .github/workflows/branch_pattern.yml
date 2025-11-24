@@ -1,53 +1,55 @@
-name: Branch Name Validation
+name: Branch Name Validation on Creation
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
-  push:
-    branches-ignore:
-      - main
-      - master
-      - develop
+  create:
 
 jobs:
   validate-branch-name:
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
     steps:
-      - name: Check branch name format
-        id: check-branch
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate branch name
+        id: validate
         run: |
-          BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
+          BRANCH_NAME="${{ github.ref_name }}"
           PATTERN="^(feat|fix|chore|docs|refactor|style|test|perf)(\([a-zA-Z0-9-]+\))?\/[a-zA-Z0-9-]+$"
           
-          echo "Branch name: $BRANCH_NAME"
+          echo "🔍 Checking branch name: $BRANCH_NAME"
           
           if [[ $BRANCH_NAME =~ $PATTERN ]]; then
+            echo "✅ Branch name is valid!"
             echo "valid=true" >> $GITHUB_OUTPUT
-            echo "✅ Branch name is valid"
           else
+            echo "❌ Branch name is INVALID!"
             echo "valid=false" >> $GITHUB_OUTPUT
-            echo "❌ Branch name is invalid"
           fi
 
-      - name: Comment on PR with error
-        if: steps.check-branch.outputs.valid == 'false' && github.event_name == 'pull_request'
+      - name: Delete invalid branch and notify
+        if: steps.validate.outputs.valid == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const branchName = context.payload.pull_request.head.ref;
-            const message = `## ⚠️ Invalid Branch Name
+            const branchName = context.ref.replace('refs/heads/', '');
             
-            The branch name \`${branchName}\` does not follow the required naming convention.
+            // Create an issue to notify the user
+            const issueBody = `## ⚠️ Branch \`${branchName}\` was automatically deleted
             
-            **Required format:**
+            The branch you created does not follow the required naming convention and has been **automatically deleted**.
+            
+            ### Required format:
             \`\`\`
             <type>(<scope>)/<description>
             \`\`\`
             
-            **Type must be one of:**
+            ### Valid types:
             - \`feat\` - A new feature
-            - \`fix\` - A bug fix
+            - \`fix\` - A bug fix  
             - \`chore\` - Maintenance tasks
             - \`docs\` - Documentation changes
             - \`refactor\` - Code refactoring
@@ -55,95 +57,46 @@ jobs:
             - \`test\` - Adding or updating tests
             - \`perf\` - Performance improvements
             
-            **Scope (optional):** A word or hyphenated phrase in parentheses
+            ### Examples of valid branch names:
+            - ✅ \`feat/user-authentication\`
+            - ✅ \`fix/login-bug\`
+            - ✅ \`feat(api)/new-endpoint\`
+            - ✅ \`refactor(database)/optimize-queries\`
+            - ❌ \`${branchName}\` (invalid)
             
-            **Examples of valid branch names:**
-            - \`feat/user-authentication\`
-            - \`fix/login-bug\`
-            - \`feat(api)/new-endpoint\`
-            - \`refactor(database)/optimize-queries\`
-            
-            **Please rename your branch before continuing:**
+            ### To create a valid branch:
             \`\`\`bash
-            git branch -m ${branchName} <new-valid-name>
-            git push origin -u <new-valid-name>
-            git push origin --delete ${branchName}
+            git checkout -b <type>/<description>
+            git push origin <type>/<description>
             \`\`\`
             
-            This PR will be automatically blocked from merging until the branch name is corrected.`;
+            **Note:** This branch protection is automatic. Please follow the naming convention.`;
             
-            // Find existing comment
-            const comments = await github.rest.issues.listComments({
+            // Create issue
+            const issue = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              title: `Invalid branch name: ${branchName}`,
+              body: issueBody,
+              labels: ['invalid-branch-name', 'automated']
             });
             
-            const botComment = comments.data.find(comment => 
-              comment.user.type === 'Bot' && 
-              comment.body.includes('Invalid Branch Name')
-            );
+            console.log(`Created issue #${issue.data.number}`);
             
-            if (botComment) {
-              // Update existing comment
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: message
-              });
-            } else {
-              // Create new comment
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: message
-              });
-            }
-
-      - name: Add blocking label
-        if: steps.check-branch.outputs.valid == 'false' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              labels: ['invalid-branch-name', 'do-not-merge']
-            });
-
-      - name: Remove blocking label if valid
-        if: steps.check-branch.outputs.valid == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
+            // Delete the branch
             try {
-              await github.rest.issues.removeLabel({
+              await github.rest.git.deleteRef({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
-                name: 'invalid-branch-name'
+                ref: `heads/${branchName}`
               });
+              console.log(`✅ Deleted branch: ${branchName}`);
             } catch (error) {
-              // Label might not exist
-            }
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                name: 'do-not-merge'
-              });
-            } catch (error) {
-              // Label might not exist
+              console.log(`⚠️ Could not delete branch: ${error.message}`);
             }
 
-      - name: Fail workflow if invalid
-        if: steps.check-branch.outputs.valid == 'false'
+      - name: Celebrate valid branch
+        if: steps.validate.outputs.valid == 'true'
         run: |
-          echo "::error::Branch name does not follow the required pattern"
-          exit 1
+          echo "🎉 Branch name follows the convention! Good job!"
+          echo "Branch: ${{ github.ref_name }}"
