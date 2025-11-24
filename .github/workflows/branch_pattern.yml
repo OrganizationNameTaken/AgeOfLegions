@@ -103,12 +103,12 @@ jobs:
                       role: 'user',
                       content: `I created a branch named "${branchName}" but it doesn't match the required pattern: ^(feat|fix|chore|docs|refactor|style|test|perf)(\\([a-zA-Z0-9-]+\\))?\\/[a-zA-Z0-9-]+$
 
-Files changed: ${filesChanged || 'Unknown'}
+              Files changed: ${filesChanged || 'Unknown'}
 
-Diff summary:
-${diffSummary || 'No summary'}
+              Diff summary:
+              ${diffSummary || 'No summary'}
 
-Suggest ONLY a valid branch name that follows the pattern. Respond with just the branch name, nothing else.`
+              Suggest ONLY a valid branch name that follows the pattern. Respond with just the branch name, nothing else.`
                     }
                   ]
                 })
