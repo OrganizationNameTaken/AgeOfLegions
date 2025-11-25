@@ -62,9 +62,9 @@ jobs:
           max-tokens: 100
           system-prompt: |
             You are a Git branch naming expert. You suggest branch names following the pattern:
-          <type>/<description> or <type>(<scope>)/<description>
-          Examples: feat/add-login, fix(auth)/resolve-token-issue, chore/update-deps
-          IMPORTANT: Use exactly ONE slash. Scope goes in parentheses, not as a path segment.            
+            <type>/<description> or <type>(<scope>)/<description>
+            Examples: feat/add-login, fix(auth)/resolve-token-issue, chore/update-deps
+            IMPORTANT: Use exactly ONE slash. Scope goes in parentheses, not as a path segment.            
             Valid types: feat, fix, chore, docs, refactor, style, test, perf
             Scope is optional but helpful.
             Description should be lowercase with hyphens.
