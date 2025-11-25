@@ -6,6 +6,7 @@ on:
 permissions:
   contents: write
   issues: write
+  models: read
 
 jobs:
   validate-branch-name:
@@ -21,10 +22,10 @@ jobs:
         id: validate
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
-          PATTERN="^(feat|fix|chore|docs|refactor|style|test|perf)(\([a-zA-Z0-9-]+\))?\/[a-zA-Z0-9-]+$"
-          
+          PATTERN="^(feat|fix|chore|docs|refactor|style|test|perf)(\([a-zA-Z0-9-]+\))?/[a-zA-Z0-9-]+$"
+
           echo "🔍 Checking branch name: $BRANCH_NAME"
-          
+
           if [[ $BRANCH_NAME =~ $PATTERN ]]; then
             echo "✅ Branch name is valid!"
             echo "valid=true" >> $GITHUB_OUTPUT
@@ -40,126 +41,53 @@ jobs:
           # Get the diff compared to main
           git fetch origin main
           DIFF=$(git diff origin/main...HEAD --stat)
-          
+
           # Save diff to a file for easier handling
           git diff origin/main...HEAD > diff.txt
-          
+
           # Get a summary of changes
           FILES_CHANGED=$(git diff origin/main...HEAD --name-only | tr '\n' ', ' | sed 's/,$//')
-          
+
           echo "files_changed=$FILES_CHANGED" >> $GITHUB_OUTPUT
           echo "diff_summary<<EOF" >> $GITHUB_OUTPUT
           echo "$DIFF" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Ask Copilot for better branch name
+      - name: Ask AI for better branch name
+        if: steps.validate.outputs.valid == 'false'
+        id: ai_suggest
+        uses: actions/ai-inference@v2.0.2
+        with:
+          model: openai/gpt-4o-mini
+          max-tokens: 100
+          system-prompt: |
+            You are a Git branch naming expert. You suggest branch names following the pattern:
+            <type>(<scope>)/<description>
+            
+            Valid types: feat, fix, chore, docs, refactor, style, test, perf
+            Scope is optional but helpful.
+            Description should be lowercase with hyphens.
+            
+            Respond with ONLY the branch name, nothing else.
+          prompt: |
+            I created a branch named "${{ github.ref_name }}" but it doesn't follow the naming convention.
+
+            Files changed: ${{ steps.get_diff.outputs.files_changed || 'Unknown' }}
+
+            Diff summary:
+            ${{ steps.get_diff.outputs.diff_summary || 'No summary available' }}
+
+            Suggest a valid branch name that follows the pattern.
+
+      - name: Clean up AI response
         if: steps.validate.outputs.valid == 'false'
         id: copilot_suggest
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const branchName = context.ref.replace('refs/heads/', '');
-            const filesChanged = process.env.FILES_CHANGED;
-            const diffSummary = process.env.DIFF_SUMMARY;
-            
-            // Read diff file
-            const fs = require('fs');
-            let diffContent = '';
-            try {
-              diffContent = fs.readFileSync('diff.txt', 'utf8');
-              // Limit diff size to avoid API limits (first 3000 chars)
-              if (diffContent.length > 3000) {
-                diffContent = diffContent.substring(0, 3000) + '\n... (truncated)';
-              }
-            } catch (error) {
-              console.log('Could not read diff file:', error.message);
-            }
-            
-            const prompt = `I tried to create a branch named "${branchName}" but it doesn't follow the required pattern:
-            
-            Pattern: ^(feat|fix|chore|docs|refactor|style|test|perf)(\\([a-zA-Z0-9-]+\\))?\\/[a-zA-Z0-9-]+$
-            
-            Files changed: ${filesChanged || 'Unknown'}
-            
-            Diff summary:
-            ${diffSummary || 'No summary available'}
-            
-            Based on these changes, suggest a better branch name that follows the pattern. Only respond with the branch name, nothing else.`;
-            
-            // Use GitHub Models API (OpenAI o1-mini) to suggest better branch name
-            try {
-              const response = await fetch('https://models.github.ai/inference/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
-                  'X-GitHub-Api-Version': '2022-11-28'
-                },
-                body: JSON.stringify({
-                  model: 'o1-mini',
-                  messages: [
-                    {
-                      role: 'user',
-                      content: `I created a branch named "${branchName}" but it doesn't match the required pattern: ^(feat|fix|chore|docs|refactor|style|test|perf)(\\([a-zA-Z0-9-]+\\))?\\/[a-zA-Z0-9-]+$
-
-              Files changed: ${filesChanged || 'Unknown'}
-
-              Diff summary:
-              ${diffSummary || 'No summary'}
-
-              Suggest ONLY a valid branch name that follows the pattern. Respond with just the branch name, nothing else.`
-                    }
-                  ]
-                })
-              });
-              
-              if (!response.ok) {
-                throw new Error(`GitHub Models API error: ${response.status} ${response.statusText}`);
-              }
-              
-              const data = await response.json();
-              let suggestedName = data.choices[0].message.content.trim();
-              
-              // Clean up the response (remove quotes, backticks, etc.)
-              suggestedName = suggestedName.replace(/[`"']/g, '').trim();
-              
-              core.setOutput('suggested_name', suggestedName);
-              console.log(`✨ AI suggested branch name: ${suggestedName}`);
-            } catch (error) {
-              console.log(`⚠️ GitHub Models API error: ${error.message}`);
-              console.log('Using fallback logic...');
-              
-              // Fallback: Smart local logic
-              const types = ['feat', 'fix', 'chore', 'docs', 'refactor', 'style', 'test', 'perf'];
-              let suggestedType = 'feat';
-              
-              for (const type of types) {
-                if (branchName.toLowerCase().includes(type)) {
-                  suggestedType = type;
-                  break;
-                }
-              }
-              
-              if (suggestedType === 'feat' && filesChanged) {
-                const lowerFiles = filesChanged.toLowerCase();
-                if (lowerFiles.includes('test') || lowerFiles.includes('spec')) {
-                  suggestedType = 'test';
-                } else if (lowerFiles.includes('readme') || lowerFiles.includes('doc')) {
-                  suggestedType = 'docs';
-                } else if (lowerFiles.includes('.css') || lowerFiles.includes('.scss') || lowerFiles.includes('style')) {
-                  suggestedType = 'style';
-                }
-              }
-              
-              const simpleName = branchName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-              const fallbackName = `${suggestedType}/${simpleName}`;
-              
-              core.setOutput('suggested_name', fallbackName);
-              console.log(`🔄 Fallback suggestion: ${fallbackName}`);
-            }
-          FILES_CHANGED: ${{ steps.get_diff.outputs.files_changed }}
-          DIFF_SUMMARY: ${{ steps.get_diff.outputs.diff_summary }}
+        run: |
+          SUGGESTED="${{ steps.ai_suggest.outputs.response }}"
+          # Remove quotes, backticks, and trim whitespace
+          SUGGESTED=$(echo "$SUGGESTED" | tr -d '\`"' | xargs)
+          echo "suggested_name=$SUGGESTED" >> $GITHUB_OUTPUT
+          echo "✨ AI suggested branch name: $SUGGESTED"
 
       - name: Create issue with suggestion
         if: steps.validate.outputs.valid == 'false'
@@ -169,21 +97,21 @@ jobs:
           script: |
             const branchName = context.ref.replace('refs/heads/', '');
             const suggestedName = process.env.SUGGESTED_NAME || 'feat/your-description';
-            
+
             const issueBody = `## ⚠️ Branch \`${branchName}\` does not follow naming convention
-            
+
             The branch you created does not follow the required naming convention.
-            
+
             ### 🤖 Suggested branch name:
             \`\`\`
             ${suggestedName}
             \`\`\`
-            
+
             ### 📝 Required format:
             \`\`\`
             <type>(<scope>)/<description>
             \`\`\`
-            
+
             ### Valid types:
             - \`feat\` - A new feature
             - \`fix\` - A bug fix 
@@ -193,28 +121,28 @@ jobs:
             - \`style\` - Code style changes
             - \`test\` - Adding or updating tests
             - \`perf\` - Performance improvements
-            
+
             ### ✅ To fix this, run these commands:
             \`\`\`bash
             # Create the new branch with the suggested name
             git checkout -b ${suggestedName}
-            
+
             # Push the new branch
             git push origin ${suggestedName}
-            
+
             # Delete the old branch (optional)
             git push origin --delete ${branchName}
             \`\`\`
-            
+
             ### Examples of valid branch names:
             - ✅ \`feat/user-authentication\`
             - ✅ \`fix/login-bug\`
             - ✅ \`feat(api)/new-endpoint\`
             - ✅ \`refactor(database)/optimize-queries\`
             - ❌ \`${branchName}\` (invalid)
-            
+
             **Note:** This branch has NOT been deleted. You can rename it using the commands above.`;
-            
+
             // Create issue
             const issue = await github.rest.issues.create({
               owner: context.repo.owner,
@@ -223,7 +151,7 @@ jobs:
               body: issueBody,
               labels: ['invalid-branch-name', 'automated']
             });
-            
+
             console.log(`Created issue #${issue.data.number}`);
         env:
           SUGGESTED_NAME: ${{ steps.copilot_suggest.outputs.suggested_name }}
