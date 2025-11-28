@@ -1,7 +1,3 @@
-plugins {
-    id 'java'
-}
-
 group = 'imperium'
 version = '1.0-SNAPSHOT'
 
@@ -11,6 +7,7 @@ repositories {
 
 plugins {
     id "org.sonarqube" version "7.1.0.6387"
+    id "java"
 }
 
 sonar {
