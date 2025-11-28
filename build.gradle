@@ -2,7 +2,7 @@ plugins {
     id 'java'
 }
 
-group = 'mathisfautsch'
+group = 'imperium'
 version = '1.0-SNAPSHOT'
 
 repositories {
