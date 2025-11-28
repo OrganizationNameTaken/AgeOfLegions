@@ -9,6 +9,16 @@ repositories {
     mavenCentral()
 }
 
+plugins {
+    id "org.sonarqube" version "7.1.0.6387"
+}
+
+sonar {
+  properties {
+    property "sonar.projectKey", "OrganizationNameTaken_AgeOfLegions"
+    property "sonar.organization", "organization-name-taken"
+}
+
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
