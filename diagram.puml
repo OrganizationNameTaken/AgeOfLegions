@@ -1,0 +1,259 @@
+@startuml
+
+' =======================
+' Abstract Base Class
+' =======================
+abstract class Character {
+  - name : String
+  - gender : Gender
+  - height : double
+  - age : int
+  - strength : int
+  - stamina : int
+  - health : int
+  - hunger : int
+  - belligerence : int
+  - potionLevel : int
+  - stomach : Food
+
+  + fight(opponent : Character) : void
+  + heal() : void
+  + eat(f : Food) : void
+  + drinkPotion(doses : int) : void
+  + die() : void
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  XEMALE
+}
+
+' =======================
+' Race-based abstract classes
+' =======================
+abstract class Gallic extends Character {
+}
+
+abstract class Roman extends Character {
+}
+
+abstract class FantasticCreature extends Character {
+}
+
+' =======================
+' Role Interfaces
+' =======================
+interface PotionMaker {
+  + brewPotion() : MagicPotion
+  + brewCauldron() : void
+}
+
+interface Fighter {
+  + attack(opponent : Character) : void
+  + defend() : void
+}
+
+interface Leader {
+}
+
+interface Worker {
+  + work() : void
+}
+
+interface Transformer {
+  + transform() : void
+  + revertForm() : void
+}
+
+' =======================
+' Gallic Characters
+' =======================
+class Druid extends Gallic implements PotionMaker, Fighter, Leader {
+}
+
+class Merchant extends Gallic implements Worker {
+}
+
+class Innkeeper extends Gallic implements Worker {
+}
+
+class Blacksmith extends Gallic implements Worker {
+}
+
+' =======================
+' Roman Characters
+' =======================
+class Legionary extends Roman implements Fighter {
+}
+
+class Prefect extends Roman implements Leader {
+}
+
+class General extends Roman implements Fighter, Leader {
+}
+
+' =======================
+' Fantastic Creatures
+' =======================
+class Lycanthrope extends FantasticCreature implements Fighter, Transformer {
+}
+
+' =======================
+' Food System
+' =======================
+class Food {
+  - type : FoodType
+  - fresh : boolean
+  - nutritionValue : int
+  - magicPower : int
+    
+  + eat() : void
+  + spoil() : void
+  + isFresh() : boolean
+  + isVegetable() : boolean
+  + isMagicIngredient() : boolean
+  + getMagicEffect() : String
+}
+
+enum FoodType {
+  WILD_BOAR
+  PASSABLE_FISH
+  STALE_FISH
+  LOBSTER
+  STRAWBERRIES
+  CARROTS
+  FRESH_CLOVER
+  STALE_CLOVER
+  HONEY
+  WINE
+  MEAD
+  BEET_JUICE
+  MISTLETOE
+  SALT
+  ROCK_OIL
+  UNICORN_MILK
+  IDEFIX_HAIR
+  SECRET_INGREDIENT
+}
+
+Food "1" -- "1" FoodType : has type
+
+' =======================
+' Magic Potion System
+' =======================
+class MagicPotion {
+  - doses : int
+  - ingredients : List<Food>
+    
+  + addIngredient(f : Food) : void
+  + doseEffect(c : Character) : void
+  + cauldronEffect(c : Character) : void
+  + doubleEffect(c : Character) : void
+}
+
+class PotionRecipe {
+  - requiredIngredients : List<FoodType>
+  - optionalIngredients : List<FoodType>
+    
+  + validate(ingredients : List<Food>) : boolean
+  + getEffect() : String
+}
+
+' =======================
+' Location System
+' =======================
+abstract class Location {
+  - name : String
+  - area : double
+  - nbCharacters : int
+  - characters : List<Character>
+  - foods : List<Food>
+    
+  + display() : void
+  + addCharacter(c : Character) : void
+  + removeCharacter(c : Character) : void
+  + canContain(c : Character) : boolean
+  + healCharacters() : void
+  + feedCharacters() : void
+}
+
+' --- BRANCH 1: Inhabited Places ---
+abstract class Settlement extends Location {
+}
+
+class GallicVillage extends Settlement {
+}
+
+class RomanFortifiedCamp extends Settlement {
+}
+
+class RomanCity extends Settlement {
+}
+
+class GalloRomanTown extends Settlement {
+}
+
+class Enclosure extends Settlement {
+}
+
+' --- BRANCH 2: Open/Wild Places ---
+abstract class Wilderness extends Location {
+}
+
+class Battlefield extends Wilderness {
+}
+
+' =======================
+' Clan Chief (Controller)
+' =======================
+class ClanChief {
+  - name : String
+  - gender : Gender
+  - age : int
+  - location : Settlement
+    
+  + examineLocation() : void
+  + createCharacter() : Character
+  + healCharacters() : void
+  + feedCharacters() : void
+  + requestPotion(d : Druid) : MagicPotion
+  + givePotionTo(c : Character, p : MagicPotion) : void
+  + transferCharacter(c : Character, dest : Location) : void
+}
+
+' =======================
+' Invasion Theater (Main Container)
+' =======================
+class InvasionTheater {
+  - name : String
+  - maxLocations : int
+  - locations : List<Location>
+  - clanChiefs : List<ClanChief>
+  - time : int
+    
+  + displayLocations() : void
+  + countCharacters() : int
+  + displayAllCharacters() : void
+  + main(args : String[]) : void
+}
+
+' =======================
+' Relationships
+' =======================
+PotionMaker ..> MagicPotion : creates
+MagicPotion "1" o-- "3..*" Food : requires
+MagicPotion ..> PotionRecipe : follows
+Character ..> Food : eats
+Character ..> MagicPotion : drinks
+
+Location "1" o-- "0..*" Character : contains
+Location "1" o-- "0..*" Food : stores
+
+' Chief specifically restricted to Settlement (not Wilderness)
+ClanChief "1" -- "1" Settlement : resides in
+
+InvasionTheater "1" *-- "1..*" Location : contains
+InvasionTheater "1" o-- "1..*" ClanChief : manages
+
+@enduml
